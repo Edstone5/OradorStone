@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orador de Textos</title>
+  <meta name="description" content="Asistente que lee en voz alta textos en español.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231f6f66'/%3E%3Cpath d='M5 10v4h3l4 3V7l-4 3z' fill='white'/%3E%3Cpath d='M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="iconos/icono-apple-180.png">
+  <meta name="theme-color" content="#1f6f66">
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="marca">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M4 9.5v5h3.5L12 18V6L7.5 9.5z"/>
+          <path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <div>
+        <h1>Orador de Textos</h1>
+        <p>Pega un texto en español o en otro idioma y escúchalo en español.</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="contenido">
+    <section class="ajustes" aria-label="Ajustes de voz">
+      <label class="campo campo-voz">
+        <span class="campo-titulo">Voz</span>
+        <select id="voz"><option>Cargando voces…</option></select>
+      </label>
+      <label class="campo campo-idioma">
+        <span class="campo-titulo">Idioma del texto</span>
+        <select id="idioma"></select>
+      </label>
+      <label class="campo campo-velocidad">
+        <span class="campo-titulo">Velocidad <output id="velocidad-valor" for="velocidad">1,0×</output></span>
+        <input id="velocidad" type="range" min="0.5" max="2" step="0.1" value="1">
+      </label>
+      <button id="probar-voz" class="boton" type="button">Probar voz</button>
+    </section>
+
+    <div id="aviso" class="aviso" role="status" hidden>
+      <p id="aviso-texto"></p>
+      <button id="aviso-cerrar" class="aviso-cerrar" type="button" aria-label="Cerrar aviso">×</button>
+    </div>
+
+    <section id="hoja" class="hoja" data-soltar="Suelta el archivo para abrirlo">
+      <div class="hoja-barra">
+        <h2 id="hoja-titulo">Tu texto</h2>
+        <div class="hoja-acciones">
+          <button id="ver-original" class="boton boton-texto" type="button" hidden>Ocultar original</button>
+          <button id="editar" class="boton boton-texto" type="button" hidden>Editar texto</button>
+          <button id="abrir" class="boton boton-texto" type="button">Abrir archivo</button>
+          <button id="foto" class="boton boton-texto solo-tactil" type="button">Tomar foto</button>
+          <button id="borrar" class="boton boton-texto" type="button">Borrar</button>
+          <input id="camara" type="file" accept="image/*" capture="environment" hidden>
+          <input id="archivo" type="file" multiple hidden
+            accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png,image/webp,image/bmp">
+        </div>
+      </div>
+      <div id="info-archivo" class="info-barra" hidden>
+        <span id="info-archivo-texto"></span>
+        <button id="cancelar-apertura" class="boton-enlace" type="button" hidden>Cancelar</button>
+      </div>
+      <p id="info-idioma" class="info-barra" hidden></p>
+      <textarea id="texto" aria-label="Texto para leer" spellcheck="false"
+        placeholder="Pega aquí el texto que quieres escuchar, o abre un PDF, Word, .txt o fotos de páginas (también puedes arrastrarlos aquí). Si está en otro idioma, lo traduciré al español antes de leerlo…"></textarea>
+      <div id="lectura" class="lectura" hidden></div>
+      <p id="contador" class="contador"></p>
+    </section>
+  </main>
+
+  <footer id="reproductor" class="reproductor" data-estado="detenido">
+    <div class="progreso" aria-hidden="true"><div id="progreso-barra" class="progreso-barra"></div></div>
+    <div class="reproductor-fila">
+      <p id="estado" class="estado">Listo para leer</p>
+      <div class="controles">
+        <button id="anterior" class="control" type="button" aria-label="Oración anterior" title="Oración anterior (←)" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2.2v14H6zM19.5 5.6v12.8L9.6 12z"/></svg>
+        </button>
+        <button id="reproducir" class="control control-principal" type="button" aria-label="Reproducir" title="Reproducir (Ctrl+Enter)">
+          <svg class="icono-reproducir" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z"/></svg>
+          <svg class="icono-pausar" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg>
+        </button>
+        <button id="siguiente" class="control" type="button" aria-label="Oración siguiente" title="Oración siguiente (→)" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 5H18v14h-2.2zM4.5 5.6v12.8L14.4 12z"/></svg>
+        </button>
+        <button id="detener" class="control" type="button" aria-label="Detener" title="Detener (Esc)" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>
+        </button>
+      </div>
+      <p class="atajos">Ctrl+Enter leer o pausar · Esc detener</p>
+    </div>
+  </footer>
+
+  <script src="js/lector.js"></script>
+  <script src="js/traductor.js"></script>
+  <script src="js/archivos.js"></script>
+  <script src="js/ocr.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
