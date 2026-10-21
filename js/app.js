@@ -107,12 +107,64 @@
 
   // --- Voces ----------------------------------------------------------------
 
+  // Voces descargables (siguen sonando con la pantalla bloqueada). Solo con la
+  // página publicada: al abrirla con doble clic no se ofrecen.
+  const { VocesDescargables } = Orador;
+  const descargables = VocesDescargables.disponible ? VocesDescargables.VOCES : [];
+  let vocesGuardadas = new Set();
+
+  function etiquetaDescargable(voz) {
+    const region = voz.lang === 'es-MX' ? 'México' : 'España';
+    const estado = vocesGuardadas.has(voz.id) ? 'descargada' : `se descarga (${voz.mb} MB)`;
+    return `${voz.nombre} — ${region} · ${estado}`;
+  }
+
+  function actualizarEtiquetasDescargables() {
+    for (const opcion of ui.voz.options) {
+      const voz = descargables.find((v) => v.name === opcion.value);
+      if (voz) opcion.textContent = etiquetaDescargable(voz);
+    }
+  }
+
+  async function descargarVoz(voz) {
+    const titulo = `la voz ${voz.nombre} (${voz.mb} MB)`;
+    mostrarAviso('descarga', `Descargando ${titulo}…`);
+    try {
+      await VocesDescargables.descargar(voz.id, (avance) => {
+        if (avisoActual && avisoActual.id === 'descarga') mostrarAviso('descarga', `Descargando ${titulo}: ${Math.round(avance * 100)} %`);
+      });
+      vocesGuardadas.add(voz.id);
+      actualizarEtiquetasDescargables();
+      mostrarAviso('descarga', `La voz ${voz.nombre} está lista. Con ella, la lectura sigue aunque bloquees la pantalla.`);
+    } catch (e) {
+      mostrarAviso('descarga', 'No se pudo descargar la voz. Revisa tu conexión a internet e inténtalo de nuevo.');
+    }
+  }
+
+  // Si la voz elegida es descargable y aún no está en el equipo, se descarga mostrando el avance.
+  function prepararVoz() {
+    const voz = lector.voz;
+    if (voz && voz.descargable && !vocesGuardadas.has(voz.id)) descargarVoz(voz);
+  }
+
+  // En el celular se recuerda que las voces del sistema se cortan al bloquear la pantalla.
+  function avisarSobreBloqueo() {
+    if (ES_CELULAR && descargables.length && lector.voz && !lector.voz.descargable) {
+      mostrarAviso('bloqueo', 'Para seguir escuchando con la pantalla bloqueada, elige en «Voz» una de las voces descargables. Se descarga una sola vez (unos 60 MB; mejor con wifi).', true);
+    } else {
+      ocultarAviso('bloqueo');
+    }
+  }
+
   function cargarVoces(avisarSiNoHay) {
-    voces = Orador.vocesEnEspanol();
+    const delSistema = Orador.vocesEnEspanol();
+    voces = [...delSistema, ...descargables];
     const elegida = (lector.voz && lector.voz.name) || almacen.leer('voz', null);
     ui.voz.textContent = '';
 
-    if (!voces.length) {
+    // Mientras llegan las voces del sistema no se elige ninguna (si no, se
+    // elegiría una descargable solo por haber llegado antes).
+    if (!delSistema.length && (!avisarSiNoHay || !descargables.length)) {
       ui.voz.add(new Option(avisarSiNoHay ? 'No hay voces en español' : 'Cargando voces…', ''));
       ui.voz.disabled = ui.probarVoz.disabled = true;
       lector.voz = null;
@@ -126,21 +178,23 @@
 
     ocultarAviso('sin-voces');
     ui.voz.disabled = ui.probarVoz.disabled = false;
-    const naturales = voces.filter(Orador.esNatural);
-    const otras = voces.filter((v) => !Orador.esNatural(v));
-    const agrupar = naturales.length > 0 && otras.length > 0;
-    agregarGrupo(agrupar ? 'Voces naturales (recomendadas)' : null, naturales);
-    agregarGrupo(agrupar ? 'Otras voces' : null, otras);
+    const naturales = delSistema.filter(Orador.esNatural);
+    const otras = delSistema.filter((v) => !Orador.esNatural(v));
+    const grupos = [naturales, otras, descargables].filter((g) => g.length).length;
+    agregarGrupo(grupos > 1 ? 'Voces naturales (recomendadas)' : null, naturales);
+    agregarGrupo(grupos > 1 ? (naturales.length ? 'Otras voces' : 'Voces del sistema') : null, otras);
+    agregarGrupo(grupos > 1 ? 'Voces descargables (siguen con la pantalla bloqueada)' : null, descargables, etiquetaDescargable);
 
-    lector.voz = voces.find((v) => v.name === elegida) || voces[0];
+    lector.voz = voces.find((v) => v.name === elegida) || delSistema[0] || descargables[0];
     ui.voz.value = lector.voz.name;
 
     // En el celular las voces del sistema ya son buenas: el consejo de Edge es solo para la computadora.
     if (naturales.length || ES_CELULAR) ocultarAviso('usar-edge');
     else mostrarAviso('usar-edge', 'Consejo: abre este archivo con Microsoft Edge para tener voces naturales en español, que suenan mucho mejor.', true);
+    avisarSobreBloqueo();
   }
 
-  function agregarGrupo(titulo, lista) {
+  function agregarGrupo(titulo, lista, etiqueta = Orador.etiquetaVoz) {
     if (!lista.length) return;
     let destino = ui.voz;
     if (titulo) {
@@ -148,7 +202,7 @@
       destino.label = titulo;
       ui.voz.appendChild(destino);
     }
-    lista.forEach((voz) => destino.appendChild(new Option(Orador.etiquetaVoz(voz), voz.name)));
+    lista.forEach((voz) => destino.appendChild(new Option(etiqueta(voz), voz.name)));
   }
 
   ui.voz.addEventListener('change', () => {
@@ -156,12 +210,16 @@
     if (!voz) return;
     lector.voz = voz;
     almacen.guardar('voz', voz.name);
+    prepararVoz();
+    avisarSobreBloqueo();
     lector.reiniciarOracion();
   });
 
   ui.probarVoz.addEventListener('click', () => {
-    const nombre = lector.voz ? Orador.nombreCorto(lector.voz) : '';
-    const saludo = nombre && nombre !== 'Google' ? `Hola, soy ${nombre}.` : 'Hola.';
+    const voz = lector.voz;
+    const nombre = !voz ? '' : voz.descargable ? voz.nombre : Orador.nombreCorto(voz);
+    const saludo = nombre && nombre !== 'Google' && nombre !== 'Voz del sistema' ? `Hola, soy ${nombre}.` : 'Hola.';
+    prepararVoz();
     lector.decir(`${saludo} Así sueno cuando leo tus textos.`);
   });
 
@@ -551,8 +609,12 @@
 
   async function alternarLectura() {
     if (preparando) return;
-    if (lector.estado === 'leyendo') lector.pausar();
-    else if (await prepararLectura()) lector.reproducir();
+    if (lector.estado === 'leyendo') {
+      lector.pausar();
+    } else if (await prepararLectura()) {
+      prepararVoz();
+      lector.reproducir();
+    }
   }
 
   ui.reproducir.addEventListener('click', alternarLectura);
@@ -600,10 +662,50 @@
     if (document.visibilityState === 'visible' && quierePantalla) pantallaEncendida(true);
   });
 
-  lector.alCambiar = ({ estado, indice, total, completo, esperando, terminado }) => {
+  // Controles en la pantalla de bloqueo y en la notificación (con voces
+  // descargables, que suenan como audio normal).
+  const sesion = 'mediaSession' in navigator ? navigator.mediaSession : null;
+  if (sesion) {
+    const acciones = {
+      play: () => { if (lector.estado !== 'leyendo') alternarLectura(); },
+      pause: () => lector.pausar(),
+      stop: () => lector.detener(),
+      previoustrack: () => lector.saltar(-1),
+      nexttrack: () => lector.saltar(1),
+    };
+    for (const [accion, hacer] of Object.entries(acciones)) {
+      try {
+        sesion.setActionHandler(accion, hacer);
+      } catch (e) { /* acción no admitida en este navegador */ }
+    }
+  }
+
+  let fraseEnSesion = -1;
+  function actualizarSesionMultimedia(estado, indice, total) {
+    if (!sesion) return;
+    sesion.playbackState = estado === 'leyendo' ? 'playing' : estado === 'pausado' ? 'paused' : 'none';
+    const fragmento = estado !== 'detenido' && lector.fragmentos[indice];
+    if (!fragmento || indice === fraseEnSesion) return;
+    fraseEnSesion = indice;
+    const titulo = fragmento.texto.length > 90 ? fragmento.texto.slice(0, 89) + '…' : fragmento.texto;
+    sesion.metadata = new MediaMetadata({
+      title: titulo,
+      artist: 'Orador de Textos',
+      album: `Oración ${indice + 1} de ${total}`,
+      artwork: [
+        { src: 'iconos/icono-192.png', sizes: '192x192', type: 'image/png' },
+        { src: 'iconos/icono-512.png', sizes: '512x512', type: 'image/png' },
+      ],
+    });
+  }
+
+  lector.alCambiar = ({ estado, indice, total, completo, esperando, preparandoVoz, terminado }) => {
     const activo = estado !== 'detenido';
     const hayFrase = activo && indice < total;
-    if ((estado === 'leyendo') !== quierePantalla) pantallaEncendida(estado === 'leyendo');
+    // Con voces descargables no hace falta: siguen sonando con la pantalla apagada.
+    const necesitaPantalla = estado === 'leyendo' && !(lector.voz && lector.voz.descargable);
+    if (necesitaPantalla !== quierePantalla) pantallaEncendida(necesitaPantalla);
+    actualizarSesionMultimedia(estado, indice, total);
 
     frases.forEach((frase, i) => {
       frase.classList.toggle('actual', hayFrase && i === indice);
@@ -627,6 +729,7 @@
     ui.barra.style.width = (terminado ? 100 : activo && total ? (Math.min(indice + 1, total) / total) * 100 : 0).toFixed(2) + '%';
     ui.estado.textContent =
       leyendo && esperando ? 'Esperando la traducción…'
+      : leyendo && preparandoVoz ? 'Preparando la voz…'
       : leyendo ? `Leyendo${posicion}`
       : activo ? `En pausa${posicion}`
       : terminado ? 'Lectura terminada'
@@ -637,6 +740,7 @@
     network: 'La voz elegida necesita internet. Revisa tu conexión o elige una de «Otras voces».',
     'voice-unavailable': 'La voz elegida no está disponible. Elige otra en la lista.',
     'not-allowed': 'El navegador bloqueó el audio. Pulsa el botón de reproducir otra vez.',
+    audio: 'No se pudo generar la voz. Revisa tu conexión (la primera vez se descarga) o elige otra voz.',
   };
   lector.alError = (codigo) => {
     mostrarAviso('error', MENSAJES_DE_ERROR[codigo] || `No se pudo leer el texto (${codigo}). Prueba con otra voz.`);
@@ -695,6 +799,14 @@
   // no al abrirla con doble clic).
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  // Qué voces descargables ya están en el equipo (para mostrarlo en la lista).
+  if (descargables.length) {
+    VocesDescargables.guardadas().then((ids) => {
+      vocesGuardadas = new Set(ids);
+      actualizarEtiquetasDescargables();
+    });
   }
 
   // Las voces llegan de forma asíncrona; si tras unos segundos no hay ninguna, se avisa.

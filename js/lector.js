@@ -18,6 +18,10 @@
   // y las que se pegan desde Word o Excel) y se leen de izquierda a derecha.
   const PAUSA_COLUMNA = 425;
 
+  // Con las voces descargables, cuántas oraciones se generan por adelantado
+  // mientras suena la actual (así no hay silencios entre una y otra).
+  const ADELANTO = 3;
+
   // ---------------------------------------------------------------------------
   // Preparación del texto
 
@@ -187,6 +191,11 @@
       this._turno = 0;          // cada lectura nueva invalida los avisos de la anterior
       this._enunciado = null;   // referencia viva: Chrome descarta enunciados sin referencia y nunca avisa que terminaron
       this._latido = null;
+      // Voces descargables: el audio se genera unas oraciones por adelantado y
+      // suena en un único <audio>, que sigue con la pantalla bloqueada.
+      this.preparandoVoz = false;
+      this._audio = null;
+      this._audios = new Map(); // "voz|índice" → promesa de la URL del audio
     }
 
     get total() {
@@ -197,6 +206,7 @@
       this.detener();
       this.fragmentos = [];
       this.completo = false;
+      this._olvidarAudios(() => true);
     }
 
     agregar(fragmentos) {
@@ -251,7 +261,7 @@
       if (this.estado === 'leyendo') this.estado = 'pausado';
       const turno = this._callar();
       this._avisar();
-      this._hablar(texto, turno, () => {});
+      this._hablar(texto, turno, null, () => {});
     }
 
     _leerActual() {
@@ -267,7 +277,7 @@
         return;
       }
       this._avisar();
-      this._hablar(this.fragmentos[this.indice].texto, turno, () => {
+      this._hablar(this.fragmentos[this.indice].texto, turno, this.indice, () => {
         const pausa = this.fragmentos[this.indice].pausa || 0;
         this.indice++;
         if (!pausa) {
@@ -281,7 +291,12 @@
       });
     }
 
-    _hablar(texto, turno, alTerminar) {
+    // `indice`: posición del fragmento (null para un texto suelto, como «Probar voz»).
+    _hablar(texto, turno, indice, alTerminar) {
+      if (this.voz && this.voz.descargable) {
+        this._hablarConAudio(texto, turno, indice, alTerminar);
+        return;
+      }
       const enunciado = new SpeechSynthesisUtterance(texto);
       if (this.voz) {
         enunciado.voice = this.voz;
@@ -310,6 +325,92 @@
       }, 30);
     }
 
+    // --- Voces descargables ---
+
+    async _hablarConAudio(texto, turno, indice, alTerminar) {
+      if (indice !== null) this._adelantar(indice);
+      // Si el audio no está listo enseguida, se avisa que se está preparando la voz.
+      const avisoDeEspera = setTimeout(() => {
+        if (turno !== this._turno) return;
+        this.preparandoVoz = true;
+        this._avisar();
+      }, 150);
+      let url;
+      try {
+        url = await (indice === null
+          ? Orador.VocesDescargables.generar(texto, this.voz.id).then((wav) => URL.createObjectURL(wav))
+          : this._audioDe(indice));
+      } catch (e) {
+        if (turno === this._turno) this._fallar('audio', e);
+        return;
+      } finally {
+        clearTimeout(avisoDeEspera);
+      }
+      if (turno !== this._turno) return;
+      if (this.preparandoVoz) {
+        this.preparandoVoz = false;
+        this._avisar();
+      }
+
+      if (!this._audio) this._audio = new Audio();
+      const audio = this._audio;
+      audio.onended = () => {
+        if (turno === this._turno) alTerminar();
+      };
+      audio.onerror = () => {
+        if (turno === this._turno) this._fallar('audio');
+      };
+      audio.src = url;
+      audio.playbackRate = this.velocidad;
+      try {
+        await audio.play();
+      } catch (e) {
+        if (turno === this._turno) this._fallar(e.name === 'NotAllowedError' ? 'not-allowed' : 'audio', e);
+      }
+    }
+
+    // Audio de un fragmento: se genera una vez y se guarda mientras haga falta.
+    _audioDe(indice) {
+      const voz = this.voz.id;
+      const clave = `${voz}|${indice}`;
+      if (!this._audios.has(clave)) {
+        const fragmento = this.fragmentos[indice];
+        const haceFalta = () => this.voz && this.voz.id === voz && this.fragmentos[indice] === fragmento &&
+          indice >= this.indice && indice <= this.indice + ADELANTO;
+        const promesa = Orador.VocesDescargables.generar(fragmento.texto, voz, haceFalta)
+          .then((wav) => URL.createObjectURL(wav));
+        promesa.catch(() => this._audios.delete(clave));
+        this._audios.set(clave, promesa);
+      }
+      return this._audios.get(clave);
+    }
+
+    // Pide por adelantado el audio de las oraciones siguientes y suelta el de las ya leídas.
+    _adelantar(indice) {
+      this._olvidarAudios((voz, i) => voz !== this.voz.id || i < indice - 1);
+      for (let i = indice + 1; i <= indice + ADELANTO && i < this.total; i++) {
+        if (this.fragmentos[i].leible) this._audioDe(i).catch(() => {});
+      }
+    }
+
+    _olvidarAudios(condicion) {
+      for (const [clave, promesa] of this._audios) {
+        const [voz, i] = clave.split('|');
+        if (condicion(voz, Number(i))) {
+          this._audios.delete(clave);
+          promesa.then((url) => URL.revokeObjectURL(url), () => {});
+        }
+      }
+    }
+
+    _fallar(codigo, error) {
+      if (error) console.warn(error);
+      this._callar();
+      if (this.estado === 'leyendo') this.estado = 'pausado';
+      this._avisar();
+      this.alError(codigo);
+    }
+
     // Las voces de Google en Chrome se callan tras ~15 s de habla continua;
     // pausar y reanudar cada pocos segundos lo evita.
     _mantenerViva(turno) {
@@ -328,8 +429,10 @@
     _callar() {
       this._turno++;
       this.esperando = false;
+      this.preparandoVoz = false;
       clearInterval(this._latido);
       this._enunciado = null;
+      if (this._audio) this._audio.pause();
       if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
       return this._turno;
     }
@@ -348,6 +451,7 @@
         total: this.total,
         completo: this.completo,
         esperando: this.esperando,
+        preparandoVoz: this.preparandoVoz,
       }, extra));
     }
   }

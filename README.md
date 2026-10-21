@@ -25,12 +25,30 @@ La página funciona como **app instalable** (PWA) cuando está publicada en inte
 En el celular:
 - **Tomar foto** abre la cámara para fotografiar una página y escucharla (se reconoce el texto con OCR).
 - **Compartir:** con la app instalada, en cualquier app puedes seleccionar un texto, tocar *Compartir* y elegir **Orador**: el texto llega listo para leer.
-- **Pantalla encendida:** mientras lee, la pantalla no se apaga sola. Si bloqueas el teléfono o cambias de app, la lectura puede detenerse al terminar la oración.
+- **Con la pantalla bloqueada:** elige en «Voz» una de las **voces descargables**. Con ellas la lectura sigue aunque bloquees el teléfono o cambies de app, y en la pantalla de bloqueo aparecen los controles (pausa, oración anterior y siguiente). Ver «Voces descargables».
+- **Pantalla encendida:** con las voces del sistema, mientras lee, la pantalla no se apaga sola, porque Chrome corta esas voces al bloquear la pantalla.
 - **Voces:** usa las voces de Android. Si no aparece ninguna en español: Ajustes → Sistema → Idiomas → Salida de texto a voz → motor de Google → instalar datos de voz en español.
 - **Traducción:** si Chrome del celular no trae traductor propio, se usa MyMemory (en línea, 5000 caracteres al día).
 - **Sin conexión:** después del primer uso, la app abre sin internet. Los lectores de PDF y de fotos se guardan la primera vez que se usan.
 
 Archivos de la app instalable: `manifest.webmanifest`, `sw.js` (service worker) e `iconos/`. Al abrir la página con doble clic en la computadora no se usan y todo funciona igual.
+
+## Voces descargables
+
+Además de las voces del sistema, en «Voz» hay **voces descargables**: voces neuronales ([Piper](https://github.com/rhasspy/piper), con [vits-web](https://github.com/diffusionstudio/vits-web)) que generan el audio dentro del navegador. Como suenan como cualquier audio, **siguen sonando con la pantalla bloqueada**.
+
+| Voz | Acento | Tamaño |
+|---|---|---|
+| Claude | México (alta calidad) | 63 MB |
+| Ald | México | 63 MB |
+| Davefx | España | 63 MB |
+| Sharvard | España | 77 MB |
+
+- Cada voz se descarga **una sola vez** al elegirla (mejor con wifi) y queda guardada; después funciona sin internet.
+- El audio se genera unas oraciones por adelantado mientras suena la actual. Al empezar, o al saltar a otra parte, la primera oración tarda unos segundos («Preparando la voz…»).
+- En un celular modesto, generar puede ir más lento que la lectura y dejar pequeños silencios entre oraciones.
+- Solo están con la página publicada (https). Al abrirla con doble clic no aparecen.
+- Cuántas oraciones se generan por adelantado se cambia en `ADELANTO`, dentro de `js/lector.js`.
 
 ## Abrir documentos
 
@@ -88,6 +106,7 @@ Los PDF escaneados (páginas que son imágenes, sin texto seleccionable) y las f
 | `js/traductor.js` | Detecta el idioma y traduce al español (traductor del navegador o MyMemory) |
 | `js/archivos.js` | Abre PDF (con pdf.js), Word (lee el .zip y su XML directamente), .txt y fotos, y quita encabezados, pies y números de página |
 | `js/ocr.js` | Reconocimiento de texto en imágenes con Tesseract.js, incluido el cambio automático de idioma |
+| `js/voces-descargables.js` | Voces neuronales que generan audio en el navegador (siguen con la pantalla bloqueada) |
 | `manifest.webmanifest`, `sw.js`, `iconos/` | App instalable en el celular: nombre e íconos, recibir textos compartidos y abrir sin conexión |
 | `js/app.js` | Interfaz: conecta botones, voces, idioma, traducción y resaltado |
 

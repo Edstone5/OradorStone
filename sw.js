@@ -4,12 +4,12 @@
  * Permite instalar la página como app y abrirla sin conexión:
  * - Los archivos de la app se piden primero a internet (así siempre llega la
  *   última versión) y, si no hay conexión, se sirven desde la copia guardada.
- * - Las librerías de la CDN (pdf.js, Tesseract y sus modelos) tienen la versión
+ * - Las librerías de las CDN (pdf.js, Tesseract, vits-web, ONNX Runtime) tienen la versión
  *   en la dirección y no cambian: se guardan la primera vez y luego se usan
  *   desde la copia, también sin conexión.
  * - Lo demás (por ejemplo, la traducción en línea) pasa sin tocarse.
  */
-const APP = 'orador-app-v1';
+const APP = 'orador-app-v2';
 const CDN = 'orador-cdn-v1';
 const ARCHIVOS_DE_LA_APP = [
   './',
@@ -17,6 +17,7 @@ const ARCHIVOS_DE_LA_APP = [
   'manifest.webmanifest',
   'css/estilos.css',
   'js/lector.js',
+  'js/voces-descargables.js',
   'js/traductor.js',
   'js/archivos.js',
   'js/ocr.js',
@@ -46,9 +47,11 @@ self.addEventListener('fetch', (evento) => {
 
   if (url.origin === self.location.origin) {
     evento.respondWith(primeroInternet(request));
-  } else if (url.hostname === 'cdn.jsdelivr.net') {
+  } else if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'cdnjs.cloudflare.com') {
     evento.respondWith(primeroCopia(request));
   }
+  // Los modelos de las voces descargables (huggingface.co) no pasan por aquí:
+  // vits-web ya los guarda en el almacenamiento del sitio.
 });
 
 async function primeroInternet(request) {
